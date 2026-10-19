@@ -2,27 +2,76 @@ import React, { useEffect, useRef } from 'react';
 import { FighterState, GameMatchState, PhilosopherProfile } from '../engine/types';
 import { PHILOSOPHER_ROSTER } from '../engine/FighterRoster';
 import { GROUND_Y } from '../engine/DeterministicKernel';
-import { AdvancedSpriteRenderer } from '../engine/AdvancedSpriteRenderer';
 import { JuiceController } from '../engine/JuiceController';
+import { MasterFighterRenderer, ParticleFxEngine } from '../engine/LogosArenaMasterCore';
+import { LogosArena3DScene } from '../engine/LogosArena3DEngine';
+import { AdvancedSpriteRenderer } from '../engine/AdvancedSpriteRenderer';
+
+export type ArenaRenderMode = '3D_WEBGL' | '2D_HD_ATLAS';
 
 interface ArenaCanvasProps {
   matchState: GameMatchState;
   stageOwnerKey: string;
   showHitboxes: boolean;
+  renderMode?: ArenaRenderMode;
 }
+
+const LOGICAL_WIDTH = 1200;
+const LOGICAL_HEIGHT = 520;
 
 export const ArenaCanvas: React.FC<ArenaCanvasProps> = ({
   matchState,
   stageOwnerKey,
   showHitboxes,
+  renderMode = '3D_WEBGL',
 }) => {
+  const webglMountRef = useRef<HTMLDivElement | null>(null);
+  const scene3DRef = useRef<LogosArena3DScene | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Initialize Three.js 3D WebGL Renderer once in isolated ref container
   useEffect(() => {
+    if (renderMode !== '3D_WEBGL') {
+      if (scene3DRef.current) {
+        scene3DRef.current.dispose();
+        scene3DRef.current = null;
+      }
+      return;
+    }
+    const mount = webglMountRef.current;
+    if (!mount) return;
+
+    const scene3D = new LogosArena3DScene(mount, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    scene3DRef.current = scene3D;
+
+    return () => {
+      scene3D.dispose();
+      scene3DRef.current = null;
+    };
+  }, [renderMode]);
+
+  useEffect(() => {
+    // 1. Update 3D WebGL Scene if active
+    if (renderMode === '3D_WEBGL' && scene3DRef.current) {
+      scene3DRef.current.syncAndRender(matchState, stageOwnerKey);
+    }
+
+    // 2. Update 2D Canvas (Full Scene in 2D_HD_ATLAS mode, or Transparent HUD/Speech-Bubble/Cut-In Overlay in 3D_WEBGL mode)
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+    const targetW = LOGICAL_WIDTH * dpr;
+    const targetH = LOGICAL_HEIGHT * dpr;
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+
+    ctx.save();
+    ctx.scale(dpr, dpr);
 
     const stageProfile = PHILOSOPHER_ROSTER[stageOwnerKey] || PHILOSOPHER_ROSTER.SOCRATES;
     const f1Profile =
@@ -30,28 +79,143 @@ export const ArenaCanvas: React.FC<ArenaCanvasProps> = ({
     const f2Profile =
       PHILOSOPHER_ROSTER[matchState.fighter2.philosopherKey] || PHILOSOPHER_ROSTER.NIETZSCHE;
 
-    drawArenaScene(
-      ctx,
-      canvas.width,
-      canvas.height,
-      matchState,
-      stageProfile,
-      f1Profile,
-      f2Profile,
-      showHitboxes
-    );
-  }, [matchState, stageOwnerKey, showHitboxes]);
+    if (renderMode === '3D_WEBGL') {
+      draw3DOverlayHUD(
+        ctx,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        matchState,
+        f1Profile,
+        f2Profile,
+        showHitboxes
+      );
+    } else {
+      drawArenaScene(
+        ctx,
+        LOGICAL_WIDTH,
+        LOGICAL_HEIGHT,
+        matchState,
+        stageProfile,
+        f1Profile,
+        f2Profile,
+        showHitboxes
+      );
+    }
+
+    ctx.restore();
+  }, [matchState, stageOwnerKey, showHitboxes, renderMode]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      id="gameCanvas"
-      width={1200}
-      height={520}
-      className="w-full h-auto block bg-[#090D16] rounded-xl border border-slate-800 shadow-2xl select-none"
-    />
+    <div className="relative w-full aspect-[1200/520] bg-[#070A14] rounded-xl border border-slate-800 shadow-2xl overflow-hidden select-none">
+      {/* Isolated Three.js WebGL Mount Container */}
+      <div
+        ref={webglMountRef}
+        className={`absolute inset-0 w-full h-full ${
+          renderMode === '3D_WEBGL' ? 'block' : 'hidden'
+        }`}
+      />
+
+      {/* 2D Retina Canvas (Transparent HUD/Speech/Cut-In Overlay in 3D Mode, or Full HD-2D Scene) */}
+      <canvas
+        ref={canvasRef}
+        id="gameCanvas"
+        width={LOGICAL_WIDTH}
+        height={LOGICAL_HEIGHT}
+        className={`relative z-10 w-full h-full block pointer-events-none select-none ${
+          renderMode === '3D_WEBGL' ? 'bg-transparent' : 'bg-[#090D16]'
+        }`}
+      />
+    </div>
   );
 };
+
+function draw3DOverlayHUD(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  state: GameMatchState,
+  f1Profile: PhilosopherProfile,
+  f2Profile: PhilosopherProfile,
+  showHitboxes: boolean
+) {
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+
+  JuiceController.applyCameraTransform(ctx, state.frameNumber);
+
+  // 1. Active Philosophical Stage Zones (Locke Territory, Plato Forms, Wittgenstein Silence, Marx Hazard)
+  for (const zone of state.activeZones) {
+    ctx.save();
+    if (zone.type === 'LOCKE_TERRITORY') {
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.22)';
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = '700 12px "JetBrains Mono", monospace';
+      ctx.fillText('LOCKE SOVEREIGN PROPERTY ZONE', zone.x + 12, zone.y - 8);
+    } else if (zone.type === 'PLATO_FORM') {
+      ctx.strokeStyle = '#38BDF8';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.fillStyle = '#BAE6FD';
+      ctx.font = '700 12px "JetBrains Mono", monospace';
+      ctx.fillText('PLATONIC FORM', zone.x + 18, zone.y - 8);
+    } else if (zone.type === 'WITTGENSTEIN_SILENCE') {
+      ctx.strokeStyle = '#94A3B8';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#E2E8F0';
+      ctx.font = '700 12px "JetBrains Mono", monospace';
+      ctx.fillText('PROPOSITION 7: SILENCE ZONE', zone.x + 8, zone.y - 8);
+    } else if (zone.type === 'MARX_HAZARD') {
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.24)';
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+      ctx.fillStyle = '#FCA5A5';
+      ctx.font = '700 12px "JetBrains Mono", monospace';
+      ctx.fillText('SURPLUS VALUE REDISTRIBUTION', zone.x + 8, zone.y - 8);
+    }
+    ctx.restore();
+  }
+
+  // 2. Live Spoken Philosophical Speech Bubbles above 3D Characters
+  AdvancedSpriteRenderer.renderSpeechOverlayForFighter(ctx, state.fighter1, f1Profile, true);
+  AdvancedSpriteRenderer.renderSpeechOverlayForFighter(ctx, state.fighter2, f2Profile, false);
+
+  // 3. Optional Frame-Data Hitbox / Hurtbox Inspector
+  if (showHitboxes) {
+    drawDebugBoxes(ctx, state.fighter1);
+    drawDebugBoxes(ctx, state.fighter2);
+  }
+
+  // 4. 2D Rune Particles, Super Cinema Cut-In Banners & Impact Overlays
+  ParticleFxEngine.updateAndRender(ctx);
+  JuiceController.renderImpactOverlays(ctx, width, height);
+
+  // 5. Floating Hit Damage & Clash Callouts
+  for (const effect of state.clashEffects) {
+    ctx.save();
+    const alpha = Math.min(1, effect.framesRemaining / 12);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#FEF08A';
+    ctx.strokeStyle = '#090D16';
+    ctx.lineWidth = 4.5;
+    ctx.font = '700 20px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    const textY = effect.y - 22 - (20 - effect.framesRemaining) * 1.6;
+    ctx.strokeText(effect.label, effect.x, textY);
+    ctx.fillText(effect.label, effect.x, textY);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
 
 function drawArenaScene(
   ctx: CanvasRenderingContext2D,
@@ -79,59 +243,83 @@ function drawArenaScene(
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, width, GROUND_Y);
 
-  // 2. Parallax Starfield, Volumetric God-Rays & Weather Particles
+  // 2. Parallax Starfield, Volumetric God-Rays, Drifting Clouds & Weather Particles
   drawAtmosphericLighting(ctx, width, GROUND_Y, stage, state.frameNumber);
 
-  // 3. Era-Authentic Masterpiece Architectural Backdrop & Spectator Gallery
+  // 3. Era-Authentic Masterpiece Architectural Backdrop, Monuments & Spectator Gallery
   drawStageArchitecture(ctx, width, GROUND_Y, stage, state.frameNumber);
 
-  // 4. Polished Reflective Marble / Stone Stage Floor
+  // 4. Polished Reflective 3D Perspective Checkered Marble Stage Floor
   const floorGrad = ctx.createLinearGradient(0, GROUND_Y, 0, height);
   floorGrad.addColorStop(0, stagePalette.floorTop);
-  floorGrad.addColorStop(0.45, stagePalette.floorBottom);
-  floorGrad.addColorStop(1, '#060911');
+  floorGrad.addColorStop(0.48, stagePalette.floorBottom);
+  floorGrad.addColorStop(1, '#050810');
   ctx.fillStyle = floorGrad;
   ctx.fillRect(0, GROUND_Y, width, height - GROUND_Y);
 
-  // Perspective Floor Tiles
-  ctx.strokeStyle = 'rgba(255,255,255,0.13)';
+  // 3D Perspective Checkered Marble Quads
+  const rowOffsets = [0, 16, 36, 62, 92];
+  for (let r = 0; r < rowOffsets.length - 1; r++) {
+    const y1 = GROUND_Y + rowOffsets[r];
+    const y2 = GROUND_Y + rowOffsets[r + 1];
+    const t1 = (y1 - GROUND_Y) / (height - GROUND_Y);
+    const t2 = (y2 - GROUND_Y) / (height - GROUND_Y);
+
+    for (let c = 0; c < 12; c++) {
+      if ((r + c) % 2 === 0) {
+        const xTopL = c * 100;
+        const xTopR = (c + 1) * 100;
+        const xBotL = (c - 6) * 162 + width / 2;
+        const xBotR = (c + 1 - 6) * 162 + width / 2;
+
+        const qx1L = xTopL + (xBotL - xTopL) * t1;
+        const qx1R = xTopR + (xBotR - xTopR) * t1;
+        const qx2R = xTopR + (xBotR - xTopR) * t2;
+        const qx2L = xTopL + (xBotL - xTopL) * t2;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.055)';
+        ctx.beginPath();
+        ctx.moveTo(qx1L, y1);
+        ctx.lineTo(qx1R, y1);
+        ctx.lineTo(qx2R, y2);
+        ctx.lineTo(qx2L, y2);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Perspective Floor Grid Lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
   ctx.lineWidth = 1.4;
   for (let i = 0; i <= 12; i++) {
     const xTop = i * 100;
-    const xBot = (i - 6) * 160 + width / 2;
+    const xBot = (i - 6) * 162 + width / 2;
     ctx.beginPath();
     ctx.moveTo(xTop, GROUND_Y);
     ctx.lineTo(xBot, height);
     ctx.stroke();
   }
 
-  // Horizontal perspective depth lines on the floor
-  for (const offsetY of [16, 36, 60, 86]) {
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y + offsetY);
-    ctx.lineTo(width, GROUND_Y + offsetY);
-    ctx.stroke();
-  }
-
   // Center Arena Sacred Inlaid Marble Medallion Seal
   ctx.save();
-  ctx.translate(width / 2, GROUND_Y + 36);
+  ctx.translate(width / 2, GROUND_Y + 38);
   ctx.scale(1, 0.24);
   ctx.strokeStyle = stagePalette.accentGlow;
-  ctx.globalAlpha = 0.28;
+  ctx.globalAlpha = 0.34;
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.arc(0, 0, 145, 0, Math.PI * 2);
+  ctx.arc(0, 0, 155, 0, Math.PI * 2);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(0, 0, 110, 0, Math.PI * 2);
+  ctx.arc(0, 0, 118, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 
   // Glowing Arena Horizon Rail
   ctx.save();
   ctx.shadowColor = stagePalette.accentGlow;
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = 18;
   ctx.strokeStyle = stagePalette.accentGlow;
   ctx.lineWidth = 3.5;
   ctx.beginPath();
@@ -144,8 +332,20 @@ function drawArenaScene(
   JuiceController.renderFloorDecals(ctx);
 
   // Flanking Animated Bronze Fire Braziers
-  drawBronzeBrazier(ctx, 92, GROUND_Y, state.frameNumber, stagePalette.accentGlow);
-  drawBronzeBrazier(ctx, width - 92, GROUND_Y, state.frameNumber + 17, stagePalette.accentGlow);
+  drawBronzeBrazier(ctx, 88, GROUND_Y, state.frameNumber, stagePalette.accentGlow);
+  drawBronzeBrazier(ctx, width - 88, GROUND_Y, state.frameNumber + 17, stagePalette.accentGlow);
+
+  // Dramatic "SUPER FREEZE" Background Dimming when either Fighter unleashes a Special or Super
+  const isSuperOrSpecActive =
+    ((state.fighter1.currentMove === 'SUPER' || state.fighter1.currentMove === 'SPECIAL') &&
+      (state.fighter1.attackState === 'STARTUP' || state.fighter1.attackState === 'ACTIVE')) ||
+    ((state.fighter2.currentMove === 'SUPER' || state.fighter2.currentMove === 'SPECIAL') &&
+      (state.fighter2.attackState === 'STARTUP' || state.fighter2.attackState === 'ACTIVE'));
+
+  if (isSuperOrSpecActive) {
+    ctx.fillStyle = 'rgba(5, 8, 16, 0.42)';
+    ctx.fillRect(0, 0, width, height);
+  }
 
   // 5. Draw Active Philosophical Stage Zones (Locke Territory, Plato Forms, Wittgenstein Silence, Marx Hazard)
   for (const zone of state.activeZones) {
@@ -209,18 +409,18 @@ function drawArenaScene(
     ctx.restore();
   }
 
-  // 6. Render Both High-Definition Arcade Fighters with Reflections, Motion Trails & Speech Bubbles
-  AdvancedSpriteRenderer.renderAnimatedFighter(
+  // 6. Render Both High-Definition Arcade Fighters via MasterFighterRenderer (Skeletal + Cloth Physics + HD-2D)
+  MasterFighterRenderer.render(
     ctx,
     state.fighter1,
-    f1Profile,
+    f1Profile.key,
     state.frameNumber,
     true
   );
-  AdvancedSpriteRenderer.renderAnimatedFighter(
+  MasterFighterRenderer.render(
     ctx,
     state.fighter2,
-    f2Profile,
+    f2Profile.key,
     state.frameNumber,
     false
   );
@@ -231,7 +431,8 @@ function drawArenaScene(
     drawDebugBoxes(ctx, state.fighter2);
   }
 
-  // 8. Render Shockwave Rings, Hit Sparks, Impact Flashes & Super Cut-In Banners
+  // 8. Render Shockwave Rings, Hit Sparks, Rune Particles, Impact Flashes & Super Cut-In Banners
+  ParticleFxEngine.updateAndRender(ctx);
   JuiceController.renderImpactOverlays(ctx, width, height);
 
   // 9. Draw Floating Hit Damage & Clash Callouts
@@ -260,7 +461,7 @@ function drawArenaScene(
     width * 0.62
   );
   vigGrad.addColorStop(0, 'rgba(0,0,0,0)');
-  vigGrad.addColorStop(1, 'rgba(5, 8, 15, 0.42)');
+  vigGrad.addColorStop(1, 'rgba(5, 8, 15, 0.44)');
   ctx.fillStyle = vigGrad;
   ctx.fillRect(0, 0, width, height);
 
@@ -276,15 +477,14 @@ function drawBronzeBrazier(
 ) {
   ctx.save();
 
-  // Warm ambient firelight glow pool
   const flameFlicker = Math.sin(frame * 0.35) * 6;
-  const fireGrad = ctx.createRadialGradient(x, groundY - 68, 4, x, groundY - 68, 65 + flameFlicker);
-  fireGrad.addColorStop(0, 'rgba(254, 240, 138, 0.55)');
-  fireGrad.addColorStop(0.45, 'rgba(245, 158, 11, 0.25)');
+  const fireGrad = ctx.createRadialGradient(x, groundY - 68, 4, x, groundY - 68, 68 + flameFlicker);
+  fireGrad.addColorStop(0, 'rgba(254, 240, 138, 0.58)');
+  fireGrad.addColorStop(0.45, 'rgba(245, 158, 11, 0.26)');
   fireGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = fireGrad;
   ctx.beginPath();
-  ctx.arc(x, groundY - 68, 65 + flameFlicker, 0, Math.PI * 2);
+  ctx.arc(x, groundY - 68, 68 + flameFlicker, 0, Math.PI * 2);
   ctx.fill();
 
   // Bronze tripod pedestal & bowl
@@ -304,7 +504,7 @@ function drawBronzeBrazier(
   // Animated Dancing Flame Tongues
   const tongues = [-9, 0, 9];
   tongues.forEach((ox, idx) => {
-    const h = 24 + Math.sin(frame * 0.42 + idx * 1.7) * 8;
+    const h = 25 + Math.sin(frame * 0.42 + idx * 1.7) * 8;
     const sway = Math.cos(frame * 0.28 + idx) * 5;
     ctx.fillStyle = idx === 1 ? '#FEF08A' : '#F59E0B';
     ctx.beginPath();
@@ -329,7 +529,7 @@ function drawAtmosphericLighting(
 
   // Starfield / Celestial Constellation Dots in Upper Sky
   ctx.fillStyle = '#F8FAFC';
-  for (let s = 0; s < 26; s++) {
+  for (let s = 0; s < 28; s++) {
     const sx = (s * 137) % width;
     const sy = (s * 43) % (groundY * 0.55);
     const twinkle = 0.25 + 0.35 * Math.abs(Math.sin(frame * 0.05 + s));
@@ -355,7 +555,7 @@ function drawAtmosphericLighting(
 
   // Floating Ambient Particles (Golden dust motes / cherry blossoms / snow embers)
   ctx.fillStyle = stagePalette.accentGlow;
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.58;
   for (let i = 0; i < 24; i++) {
     const px = ((i * 89 + frame * (0.65 + (i % 3) * 0.3)) % (width - 60)) + 30;
     const py = ((i * 47 + Math.sin(frame * 0.04 + i) * 32) % (groundY - 50)) + 25;
@@ -379,30 +579,33 @@ function drawStageArchitecture(
   ctx.save();
 
   // Celestial Rose Window / Sun Halo Centerpiece
-  const orbGrad = ctx.createRadialGradient(width / 2, 150, 12, width / 2, 150, 155);
+  const orbGrad = ctx.createRadialGradient(width / 2, 150, 12, width / 2, 150, 160);
   orbGrad.addColorStop(0, stagePalette.accentGlow);
-  orbGrad.addColorStop(0.5, 'rgba(245, 158, 11, 0.14)');
+  orbGrad.addColorStop(0.5, 'rgba(245, 158, 11, 0.16)');
   orbGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = orbGrad;
   ctx.beginPath();
-  ctx.arc(width / 2, 150, 155, 0, Math.PI * 2);
+  ctx.arc(width / 2, 150, 160, 0, Math.PI * 2);
   ctx.fill();
 
-  // Sacred Geometric Halo Rays behind centerpiece
+  // Rotating Celestial Astrolabe / Rose Window Geometry Behind Centerpiece
   ctx.save();
   ctx.translate(width / 2, 150);
   ctx.rotate(frame * 0.004);
   ctx.strokeStyle = stagePalette.accentGlow;
-  ctx.globalAlpha = 0.18;
-  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.22;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  ctx.arc(0, 0, 112, 0, Math.PI * 2);
+  ctx.arc(0, 0, 116, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 82, 0, Math.PI * 2);
   ctx.stroke();
   for (let r = 0; r < 12; r++) {
     const ang = (r * Math.PI) / 6;
     ctx.beginPath();
-    ctx.moveTo(Math.cos(ang) * 45, Math.sin(ang) * 45);
-    ctx.lineTo(Math.cos(ang) * 112, Math.sin(ang) * 112);
+    ctx.moveTo(Math.cos(ang) * 42, Math.sin(ang) * 42);
+    ctx.lineTo(Math.cos(ang) * 116, Math.sin(ang) * 116);
     ctx.stroke();
   }
   ctx.restore();
@@ -415,15 +618,15 @@ function drawStageArchitecture(
     stagePalette.architectureStyle === 'berlin_lecture'
   ) {
     // Distant Acropolis / Temple Pediment Silhouette
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.68)';
     ctx.strokeStyle = stagePalette.architectureSecondary;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(width / 2 - 240, groundY);
-    ctx.lineTo(width / 2 - 240, 165);
-    ctx.lineTo(width / 2, 88);
-    ctx.lineTo(width / 2 + 240, 165);
-    ctx.lineTo(width / 2 + 240, groundY);
+    ctx.moveTo(width / 2 - 245, groundY);
+    ctx.lineTo(width / 2 - 245, 165);
+    ctx.lineTo(width / 2, 86);
+    ctx.lineTo(width / 2 + 245, 165);
+    ctx.lineTo(width / 2 + 245, groundY);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -442,7 +645,7 @@ function drawStageArchitecture(
       ctx.fillRect(cx - 20, 88, 40, groundY - 88);
 
       // Vertical Fluting Grooves
-      ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.38)';
       ctx.lineWidth = 1.2;
       for (const gx of [-10, 0, 10]) {
         ctx.beginPath();
@@ -558,7 +761,7 @@ function drawStageArchitecture(
   }
 
   // Stage Title Plaque at Top Center
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.84)';
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.86)';
   ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -592,11 +795,9 @@ function drawSpectatorSilhouettes(
   const positions = [210, 345, 495, 555, 645, 705, 845, 985];
   positions.forEach((sx, i) => {
     const bob = Math.sin(frame * 0.12 + i * 1.3) * 3.5;
-    // Scholar robe silhouette
     ctx.beginPath();
     ctx.roundRect(sx - 14, groundY - 46 + bob, 28, 46 - bob, 8);
     ctx.fill();
-    // Scholar head silhouette
     ctx.beginPath();
     ctx.arc(sx, groundY - 54 + bob, 9.5, 0, Math.PI * 2);
     ctx.fill();

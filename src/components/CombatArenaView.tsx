@@ -12,7 +12,7 @@ import {
   PlayerInput,
   RollbackTelemetry,
 } from '../engine/types';
-import { ArenaCanvas } from './ArenaCanvas';
+import { ArenaCanvas, ArenaRenderMode } from './ArenaCanvas';
 import { PhilosopherPortrait } from './PhilosopherPortrait';
 import { SoundEngine } from '../engine/SoundEngine';
 import { JuiceController } from '../engine/JuiceController';
@@ -30,6 +30,7 @@ import {
   ArrowRight,
   MessageSquareQuote,
   Music,
+  Box,
 } from 'lucide-react';
 
 export type CombatMode = 'STORY' | 'VERSUS_AI' | 'LOCAL_2P' | 'ONLINE_P2P' | 'NETCODE_SANDBOX';
@@ -89,8 +90,11 @@ export const CombatArenaView: React.FC<CombatArenaViewProps> = ({
 
   const [isPaused, setIsPaused] = useState(false);
   const [showHitboxes, setShowHitboxes] = useState(false);
+  const [renderMode, setRenderMode] = useState<ArenaRenderMode>('3D_WEBGL');
   const [muted, setMuted] = useState(SoundEngine.isMuted());
   const [musicOn, setMusicOn] = useState(SoundEngine.isMusicEnabled());
+  const [pickingSlot, setPickingSlot] = useState<'P1' | 'P2'>('P1');
+  const [expandRosterGrid, setExpandRosterGrid] = useState(false);
   const [aiDifficulty, setAiDifficulty] = useState(
     campaignStage ? campaignStage.aiDifficulty : 3
   );
@@ -538,45 +542,70 @@ export const CombatArenaView: React.FC<CombatArenaViewProps> = ({
           ))}
         </div>
 
-        {/* Quick Fighter Pickers & Controls */}
+        {/* Interactive Face + Name Fighter Pickers & Controls */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-sky-400 font-mono">P1:</span>
-            <select
-              aria-label="Select Player 1 Philosopher"
-              value={effectiveP1}
-              disabled={mode === 'ONLINE_P2P'}
-              onChange={(e) => onChangeP1(e.target.value)}
-              className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-slate-100 focus:outline-none focus:border-amber-500"
-            >
-              {PHILOSOPHER_LIST.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            type="button"
+            disabled={mode === 'ONLINE_P2P'}
+            onClick={() => {
+              setPickingSlot('P1');
+              setExpandRosterGrid((prev) => (pickingSlot === 'P1' ? !prev : true));
+            }}
+            className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs transition-colors ${
+              pickingSlot === 'P1'
+                ? 'bg-sky-500/15 border-sky-400 text-slate-100'
+                : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            <PhilosopherPortrait philosopherKey={effectiveP1} size="xs" />
+            <div className="text-left">
+              <span className="text-[10px] font-mono text-sky-400 block leading-none">
+                P1 FIGHTER
+              </span>
+              <span className="font-semibold text-slate-100">{p1Profile.name} ▾</span>
+            </div>
+          </button>
 
           <span className="text-xs text-slate-500 font-mono">vs</span>
 
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-rose-400 font-mono">P2:</span>
-            <select
-              aria-label="Select Player 2 Philosopher"
-              value={effectiveP2}
-              disabled={mode === 'STORY' || mode === 'ONLINE_P2P'}
-              onChange={(e) => onChangeP2(e.target.value)}
-              className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-slate-100 focus:outline-none focus:border-amber-500 disabled:opacity-60"
-            >
-              {PHILOSOPHER_LIST.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            type="button"
+            disabled={mode === 'STORY' || mode === 'ONLINE_P2P'}
+            onClick={() => {
+              setPickingSlot('P2');
+              setExpandRosterGrid((prev) => (pickingSlot === 'P2' ? !prev : true));
+            }}
+            className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs transition-colors disabled:opacity-60 ${
+              pickingSlot === 'P2'
+                ? 'bg-rose-500/15 border-rose-400 text-slate-100'
+                : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            <PhilosopherPortrait philosopherKey={effectiveP2} size="xs" />
+            <div className="text-left">
+              <span className="text-[10px] font-mono text-rose-400 block leading-none">
+                P2 OPPONENT
+              </span>
+              <span className="font-semibold text-slate-100">{p2Profile.name} ▾</span>
+            </div>
+          </button>
 
           <div className="flex flex-wrap items-center gap-1.5 border-l border-slate-800 pl-2">
+            <button
+              type="button"
+              onClick={() =>
+                setRenderMode((m) => (m === '3D_WEBGL' ? '2D_HD_ATLAS' : '3D_WEBGL'))
+              }
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded border transition-colors whitespace-nowrap shrink-0 ${
+                renderMode === '3D_WEBGL'
+                  ? 'bg-purple-500/20 text-purple-200 border-purple-400/50 hover:bg-purple-500/30'
+                  : 'bg-sky-500/20 text-sky-200 border-sky-400/50 hover:bg-sky-500/30'
+              }`}
+            >
+              <Box className="w-3.5 h-3.5" />
+              {renderMode === '3D_WEBGL' ? '3D WebGL Cel' : 'HD-2D Atlas'}
+            </button>
+
             <button
               type="button"
               onClick={handleSpeakPhilosophyNow}
@@ -648,6 +677,108 @@ export const CombatArenaView: React.FC<CombatArenaViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Visual 21-Philosopher Faces + Names Character Select Strip / Expandable Grid */}
+      {mode !== 'ONLINE_P2P' && (
+        <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-400 font-medium">Choose Fighter (Faces & Names):</span>
+              <button
+                type="button"
+                onClick={() => setPickingSlot('P1')}
+                className={`px-2.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
+                  pickingSlot === 'P1'
+                    ? 'bg-sky-500 text-slate-950 font-bold'
+                    : 'bg-slate-800 text-sky-300 hover:bg-slate-700'
+                }`}
+              >
+                Picking P1: {p1Profile.name}
+              </button>
+              {mode !== 'STORY' && (
+                <button
+                  type="button"
+                  onClick={() => setPickingSlot('P2')}
+                  className={`px-2.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
+                    pickingSlot === 'P2'
+                      ? 'bg-rose-500 text-slate-950 font-bold'
+                      : 'bg-slate-800 text-rose-300 hover:bg-slate-700'
+                  }`}
+                >
+                  Picking P2: {p2Profile.name}
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setExpandRosterGrid((g) => !g)}
+              className="text-xs font-mono text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              {expandRosterGrid ? 'Collapse to Single Ribbon ▲' : 'Expand All 21 Faces Grid ▼'}
+            </button>
+          </div>
+
+          <div
+            className={
+              expandRosterGrid
+                ? 'grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2 pt-1'
+                : 'flex items-center gap-2 overflow-x-auto pb-1 pt-0.5'
+            }
+          >
+            {PHILOSOPHER_LIST.map((phil) => {
+              const isP1Selected = effectiveP1 === phil.key;
+              const isP2Selected = effectiveP2 === phil.key;
+              return (
+                <button
+                  key={phil.key}
+                  type="button"
+                  onClick={() => {
+                    if (pickingSlot === 'P2' && mode !== 'STORY') {
+                      onChangeP2(phil.key);
+                      SoundEngine.triggerPhilosopherQuote('player2', phil.key, 'INTRO', true);
+                    } else {
+                      onChangeP1(phil.key);
+                      SoundEngine.triggerPhilosopherQuote('player1', phil.key, 'INTRO', true);
+                    }
+                  }}
+                  className={`group relative flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all shrink-0 ${
+                    expandRosterGrid ? 'w-full' : 'w-40'
+                  } ${
+                    isP1Selected && isP2Selected
+                      ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
+                      : isP1Selected
+                      ? 'bg-sky-500/20 border-sky-400 text-white shadow-md'
+                      : isP2Selected
+                      ? 'bg-rose-500/20 border-rose-400 text-white shadow-md'
+                      : 'bg-slate-950/80 border-slate-800/90 text-slate-300 hover:border-slate-600 hover:text-white'
+                  }`}
+                >
+                  <PhilosopherPortrait philosopherKey={phil.key} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1">
+                      {isP1Selected && (
+                        <span className="px-1 py-0.2 bg-sky-500 text-slate-950 font-mono font-bold text-[9px] rounded">
+                          P1
+                        </span>
+                      )}
+                      {isP2Selected && (
+                        <span className="px-1 py-0.2 bg-rose-500 text-slate-950 font-mono font-bold text-[9px] rounded">
+                          P2
+                        </span>
+                      )}
+                      <span className="text-xs font-semibold truncate">{phil.name}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate">
+                      {phil.specialAbilityName}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Top Combat HUD */}
       <div className="grid grid-cols-12 items-center gap-3 bg-slate-900/90 border border-slate-800 rounded-xl p-3">
@@ -749,11 +880,12 @@ export const CombatArenaView: React.FC<CombatArenaViewProps> = ({
           matchState={matchState}
           stageOwnerKey={f2.philosopherKey}
           showHitboxes={showHitboxes}
+          renderMode={renderMode}
         />
 
         {/* Pre-Match Story Mode Intro Dialogue Modal */}
         {showStoryIntroModal && campaignStage && (
-          <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm rounded-xl flex items-center justify-center p-6 z-20">
+          <div className="absolute inset-0 bg-slate-950/95 rounded-xl flex items-center justify-center p-6 z-20">
             <div className="max-w-xl w-full bg-slate-900 border border-amber-500/60 rounded-xl p-6 space-y-5 shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
@@ -805,7 +937,7 @@ export const CombatArenaView: React.FC<CombatArenaViewProps> = ({
 
         {/* Round Over / Victory Modal Overlay */}
         {(matchState.isRoundOver || matchState.isGameOver) && (
-          <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm rounded-xl flex items-center justify-center p-6 z-20">
+          <div className="absolute inset-0 bg-slate-950/95 rounded-xl flex items-center justify-center p-6 z-20">
             <div className="max-w-lg w-full bg-slate-900 border border-amber-500/70 rounded-xl p-6 space-y-5 text-center shadow-2xl">
               <div className="text-xs font-mono text-amber-400">
                 {matchState.isGameOver ? 'MATCH DECIDED' : `ROUND 0${matchState.roundNumber} COMPLETE`} ·{' '}

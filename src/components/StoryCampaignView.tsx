@@ -64,34 +64,48 @@ export const StoryCampaignView: React.FC<StoryCampaignViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Protagonist Selector & Current Chapter Briefing */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Protagonist Selection */}
+          {/* Protagonist Selection with Faces & Names */}
           <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400">Your Campaign Protagonist</span>
+              <span className="text-xs text-slate-400">Choose Your Campaign Protagonist (21 Philosophers)</span>
               <span className="text-xs font-mono text-amber-400">{playerProfile.era}</span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-800/80">
               <PhilosopherPortrait philosopherKey={playerProfile.key} size="md" />
               <div className="min-w-0 flex-1">
                 <h2 className="text-xl font-bold text-slate-100 font-display truncate">
                   {playerProfile.name}
                 </h2>
                 <p className="text-xs text-slate-400 truncate">
-                  {playerProfile.specialAbilityName}
+                  {playerProfile.specialAbilityName} · {playerProfile.fightingStyle}
                 </p>
               </div>
-              <select
-                aria-label="Select Protagonist Philosopher"
-                value={playerPhilosopherKey}
-                onChange={(e) => onSelectPlayerPhilosopher(e.target.value)}
-                className="px-3 py-2 text-xs bg-slate-950 border border-slate-800 rounded-lg text-slate-200 focus:outline-none focus:border-amber-500"
-              >
-                {PHILOSOPHER_LIST.map((p) => (
-                  <option key={p.key} value={p.key}>
-                    {p.name} ({p.era.split(' ')[0]})
-                  </option>
-                ))}
-              </select>
+            </div>
+
+            <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+              {PHILOSOPHER_LIST.map((p) => {
+                const isSelected = playerPhilosopherKey === p.key;
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => onSelectPlayerPhilosopher(p.key)}
+                    className={`p-2 rounded-lg border text-left flex items-center gap-2 transition-colors ${
+                      isSelected
+                        ? 'bg-amber-500/20 border-amber-400 text-slate-100 shadow-sm'
+                        : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-600 hover:text-white'
+                    }`}
+                  >
+                    <PhilosopherPortrait philosopherKey={p.key} size="xs" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold truncate">{p.name}</div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {p.era.split(' ')[0]}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

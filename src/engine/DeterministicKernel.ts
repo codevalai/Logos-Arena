@@ -9,6 +9,7 @@ import {
 import { PHILOSOPHER_ROSTER } from './FighterRoster';
 import { ComboEngine } from './ComboEngine';
 import { JuiceController } from './JuiceController';
+import { ArcadeSoundEngine, ParticleFxEngine } from './LogosArenaMasterCore';
 
 export const STATE_POOL_SIZE = 120; // 2 seconds of pre-allocated rollback frames at 60 FPS
 export const STAGE_LEFT_BOUND = 75;
@@ -780,20 +781,26 @@ export class CombatEngine {
       attacker.currentMove === 'SPECIAL' ||
       attacker.currentMove === 'SUPER';
     if (attacker.currentMove === 'SUPER') {
+      ArcadeSoundEngine.playImpact('super');
       JuiceController.triggerHitstop(8);
       JuiceController.triggerScreenShake(14, 12);
       JuiceController.triggerImpactFlash('#F59E0B', 0.25);
       JuiceController.spawnHitSparks(sparkX, sparkY, true, '#FDE047');
       JuiceController.spawnFloorCrater(sparkX, GROUND_Y, '#FDE047', 84);
+      ParticleFxEngine.spawnImpactSparks(sparkX, sparkY, true);
     } else if (isHeavyOrSpec) {
-      JuiceController.triggerHitstop(5);
-      JuiceController.triggerScreenShake(9, 8);
+      ArcadeSoundEngine.playImpact('heavy');
+      JuiceController.triggerHitstop(6);
+      JuiceController.triggerScreenShake(12, 10);
       JuiceController.spawnHitSparks(sparkX, sparkY, true, '#F59E0B');
       JuiceController.spawnFloorCrater(sparkX, GROUND_Y, '#F59E0B', 58);
+      ParticleFxEngine.spawnImpactSparks(sparkX, sparkY, false);
     } else {
+      ArcadeSoundEngine.playImpact('light');
       JuiceController.triggerHitstop(3);
       JuiceController.triggerScreenShake(4, 3.5);
       JuiceController.spawnHitSparks(sparkX, sparkY, false, '#38BDF8');
+      ParticleFxEngine.spawnImpactSparks(sparkX, sparkY, false);
     }
 
     // Apply philosopher-specific special effects on hit
