@@ -1,0 +1,6 @@
+{
+  "name": "Logos Arena: Clash of Philosophers",
+  "description": "A 60 FPS deterministic 2D arcade fighting game featuring 21 historical philosophers, frame-accurate hitbox physics, branching Story Mode campaign, and WebRTC/WebSocket rollback netcode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
